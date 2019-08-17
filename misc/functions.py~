@@ -1,0 +1,248 @@
+import pygame
+import globals
+from globals import *
+
+def coords_to_dir((x,y)):
+    dir = ''
+    if (y == -1):
+        dir = 'N'
+    if (y == 1):
+        dir = 'S'
+    if (x == -1):
+        dir += 'W'
+    if (x == 1):
+        dir += 'E'
+    return dir
+
+def obstacle((x, y)):
+    global player, npcs, walls, floor
+    for obj in npcs+walls+[player]:
+        #collide with any object/npc? (not doors)
+        if obj.x == x and obj.y == y:
+            return True
+        # collide with boundary?
+    if not floor.rect.collidepoint((x, y)):
+        return True
+    return False
+
+def obstacle_npc((x,y)):
+    """ Is there an NPC at the location? """
+    global npcs
+    for npc in npcs:
+        if (npc.x, npc.y) == (x, y):
+            return npc
+    return None
+
+def draw_target(obj):
+    """ Draws the target symbol over the target. """
+    global screen
+    source = pygame.image.load('target.bmp')
+    source.set_colorkey((255,255,255))
+    screen.blit(source, adjusted_posn(obj.x, obj.y, 152, 20))
+
+def draw_locator():
+    """ Draws the target symbol over the target. """
+    global screen
+    source = pygame.image.load('target.bmp')
+    source.set_colorkey((255,255,255))
+    screen.blit(source, adjusted_posn(player.x, player.y, 152, 20))
+
+def y_sort(obj_1, obj_2):
+    """ Sort through a list of objects to determine rendering order.  Takes into account virtual door opening. """
+    y_1 = get_y(obj_1)
+    y_2 = get_y(obj_2)
+    if y_1 > y_2: return 1
+    if y_1 == y_2: return 0
+    if y_1 < y_2: return -1
+
+def get_y(obj):
+    global doors, npcs, player, containers
+    y = 6*obj.x + 6*obj.y
+    if obj in doors:
+        if obj.dir == 'E':
+            if obj.show_open_icon:
+                y += 12
+            elif not obj.show_open_icon:
+                y += 6
+        elif obj.dir == 'S':
+            if obj.show_open_icon:
+                y += 3
+            elif not obj.show_open_icon:
+                y += 0
+    elif obj in npcs + [player]:
+        y += 2
+    elif obj in containers:
+        y += 1
+    else:
+        y += 0
+    return y
+
+def z_sort(obj_1, obj_2):
+    if obj_1.get_z() > obj_2.get_z(): return 1
+    elif obj_1.get_z() == obj_2.get_z(): return 0
+    elif obj_1.get_z() < obj_2.get_z(): return -1
+
+def distance(obj_1, obj_2):
+    if hasattr(obj_1, 'x'):
+        x_1 = obj_1.x
+        y_1 = obj_1.y
+    else:
+        x_1 = obj_1[0]
+        y_1 = obj_1[1]
+    if hasattr(obj_2, 'x'):
+        x_2 = obj_2.x
+        y_2 = obj_2.y
+    else:
+        x_2 = obj_2[0]
+        y_2 = obj_2[1]
+    dx = x_2 - x_1
+    dy = y_2 - y_1
+    return (dx*dx + dy*dy)**.5
+
+def distance_sort(x, y, target):
+    """
+    Sort a list of npcs/objects by distance from the target.
+    """
+    if distance(target, x) > distance(target, y): return 1
+    if distance(target, x) == distance(target, y): return 0
+    if distance(target, x) < distance(target, y): return -1
+
+def acquire_target(shift = None):
+    global player, npcs
+    npcs.sort(lambda a,b: distance_sort(a,b,player))
+    if target == None:
+        if npcs:
+            return npcs[0]
+    else:
+        index = npcs.index(target)
+        if shift:
+            return npcs[(index-1) % len(npcs)]
+        else:
+            return npcs[(index+1) % len(npcs)]
+
+def adjacent_squares((x, y)):
+    squares = [(x-1, y-1), (x, y-1), (x+1, y-1), (x-1, y), (x+1, y), (x-1, y+1), (x, y+1), (x+1, y+1)]
+    return squares
+
+def knight_move((x, y)):
+    return [(x-1, y-2), (x+1, y-2), (x-2, y-1), (x+2, y-1), (x-2, y+1), (x+2, y+1), (x-1, y+2), (x+1, y+2)]
+
+def get_next_square(source, target):
+    squares = adjacent_squares((source[0], source[0]))
+    squares.sort(lambda a,b: distance_sort(a,b,target))
+    for square in squares:
+        if not obstacle(square):
+            return square
+
+def point_at(source, target):
+    squares = adjacent_squares((source.x, source.y))
+    squares.sort(lambda a,b: distance_sort(a,b,target))
+    for square in squares:
+        if square == (target.x, target.y):
+            source.dx = square[0] - source.x
+            source.dy = square[1] - source.y
+            return True
+        elif not obstacle(square):
+            source.dx = square[0] - source.x
+            source.dy = square[1] - source.y
+            return True
+
+def check_los(source, target):
+    """
+    x_1 = min(source[0], target[0])
+    x_2 = max(source[0], target[0])
+    y_1 = min(source[1], target[1])
+    y_2 = max(source[1], target[1])
+    (x,y) = (x_1, y_1)
+    while x < target[0] or y < target[1]:
+        if not obstacle((x + 1, y)):
+            x += 1
+        elif (x + 1, y) == target:
+            x += 1
+        elif not obstacle((x, y + 1)):
+            y += 1
+        elif (x, y + 1) == target:
+            y += 1
+        else:
+            return False
+    """
+    return True
+
+
+def is_dead(obj):
+    return obj.current_hp <= 0
+
+def key_to_dir(key):
+    keyName = pygame.key.name(key)
+    if keyName == '[1]': return 'S'
+    elif keyName == '[2]': return 'SE'
+    elif keyName == '[3]': return 'E'
+    elif keyName == '[4]': return 'SW'
+    elif keyName == '[6]': return 'NE'
+    elif keyName == '[7]': return 'W'
+    elif keyName == '[8]': return 'NW'
+    elif keyName == '[9]': return 'N'
+
+def dir_to_key(dir):
+    if dir == 'N': return K_KP9
+    elif dir == 'NE': return K_KP6
+    elif dir == 'E': return K_KP3
+    elif dir == 'SE': return K_KP2
+    elif dir == 'S': return K_KP1
+    elif dir == 'SW': return K_KP4
+    elif dir == 'W': return K_KP7
+    elif dir == 'NW': return K_KP8
+
+def get_angle(a, b):
+    if a == b: return 0
+    elif a == 'N':
+        if b in ['NW', 'NE']: return 45
+        elif b in ['W', 'E']: return 90
+        elif b in ['SW', 'SE']: return 135
+        else: return 180
+    elif a == 'NE':
+        if b in ['N', 'E']: return 45
+        elif b in ['NW', 'SE']: return 90
+        elif b in ['W', 'S']: return 135
+        else: return 180
+    elif a == 'E':
+        if b in ['NE', 'SE']: return 45
+        elif b in ['N', 'S']: return 90
+        elif b in ['NW', 'SW']: return 135
+        else: return 180
+    elif a == 'SE':
+        if b in ['E', 'S']: return 45
+        elif b in ['NE', 'SW']: return 90
+        elif b in ['W', 'N']: return 135
+        else: return 180
+    elif a == 'S':
+        if b in ['SW', 'SE']: return 45
+        elif b in ['W', 'E']: return 90
+        elif b in ['NW', 'NE']: return 135
+        else: return 180
+    elif a == 'SW':
+        if b in ['W', 'S']: return 45
+        elif b in ['NW', 'SE']: return 90
+        elif b in ['N', 'E']: return 135
+        else: return 180
+    elif a == 'W':
+        if b in ['NW', 'SW']: return 45
+        elif b in ['N', 'S']: return 90
+        elif b in ['NE', 'SE']: return 135
+        else: return 180
+    elif a == 'NW':
+        if b in ['W', 'N']: return 45
+        elif b in ['SW', 'NE']: return 90
+        elif b in ['S', 'E']: return 135
+        else: return 180
+
+def in_line(obj_1, obj_2):
+    if obj_1.x == obj_2.x:
+        return True
+    elif obj_1.y == obj_2.y:
+        return True
+    elif obj_1.x + obj_1.y == obj_2.x + obj_2.y:
+        return True
+    elif obj_1.x - obj_1.y == obj_2.x - obj_2.y:
+        return True
+    return False

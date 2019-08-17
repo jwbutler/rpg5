@@ -1,0 +1,435 @@
+def obstacle(x, y):
+    global player, npcs, walls, floor
+    for obj in npcs+walls+[player]:
+        #collide with any object/npc? (not doors)
+        if obj.x == x and obj.y == y:
+            return True
+        # collide with boundary?
+    if not floor.rect.collidepoint((x, y)):
+        return True
+    return False
+
+def obstacle_npc(x,y):
+    global npcs
+    for npc in npcs:
+        #collide with any object/npc?
+        if npc.x == x and npc.y == y:
+            return npc
+    return None
+
+def adjusted_posn(x, y, dx, dy):
+    """
+    Converts grid coords to pixels.  Also applies camera movement.
+    I think dy should be negative, but...
+    """
+    global camera
+    a = (x - camera.x)*8 - (y - camera.y)*8 + dx
+    b = (x - camera.x)*4 + (y - camera.y)*4 + dy + 60
+    return(a,b)
+
+def sort_equipment(a, b):
+    z_1 = 0
+    z_2 = 0
+    if a.slot == 'chest': z_1 = 0
+    elif a.slot == 'head': z_1 = 1
+    elif a.slot == 'offhand': z_1 = 2
+    elif a.slot == 'mainhand': z_1 = 3
+    if b.slot == 'chest': z_2 = 0
+    elif b.slot == 'head': z_2 = 1
+    elif b.slot == 'offhand': z_2 = 2
+    elif b.slot == 'mainhand': z_2 = 3
+
+    if z_1 > z_2: return 1
+    elif z_1 == z_2: return 0
+    elif z_1 < z_2: return -1
+
+def draw(obj, dx = 0, dy = 0):
+    """ draw a whole bunch of things, player or npcs mostly, with awkward conditionals for things """
+    obj.equipment = sorted(obj.equipment, sort_equipment)
+    try:
+        for equip in obj.equipment:
+            f = equip.current_animation.get_current_filename()
+            if f[len(f)-6:] == '_B.bmp':
+                draw_equipment(equip, obj.x, obj.y, dx, dy)
+    except:
+        pass
+    source = obj.get_current_frame()
+    screen.blit(source, adjusted_posn(obj.x, obj.y,152+dx,dy))
+    try:
+        for equip in obj.equipment:
+            f = equip.current_animation.get_current_filename()
+            if f[len(f)-6:] != '_B.bmp':
+                draw_equipment(equip, obj.x, obj.y, equip.x_offset+dx, equip.y_offset+dy)
+    except:
+        pass
+
+def palette_swap(surface, source_color, dest_color):
+    """
+    surface --> surface
+    this function is pixelwise, and slow as fucking hell, but i can't find a better way - pygame.surfarray sucked
+    """
+    for y in range(surface.get_height()):
+        for x in range(surface.get_width()):
+            if surface.get_at((x,y)) == source_color:
+                surface.set_at((x,y), dest_color)
+    
+def draw_target(obj):
+    """
+    Draws the target symbol over the target. """
+    global screen
+    source = pygame.image.load('target.bmp')
+    source.set_colorkey((255,255,255))
+    screen.blit(source, adjusted_posn(obj.x, obj.y, 152, -15))
+
+def blocked_squares(obj):
+    """ returns all squares blocked by a wall """
+    (x,y) = (obj.x, obj.y)
+    squares = [(x-3, y-3), (x-2, y-3), (x-1, y-3), (x-3, y-2), (x-2, y-2), (x-1, y-2), (x, y-2), (x-3, y-1), (x-2, y-1), (x-1, y-1), (x, y-1), (x-2, y), (x-1, y)]
+    return squares
+
+def draw_floor(floor):
+    """ draw a floor object """
+    global screen
+    for j in range(floor.rect.top, floor.rect.bottom):
+        for i in range(floor.rect.left, floor.rect.right):
+            img = floor.tiles[(i,j)]
+            screen.blit(img, adjusted_posn(i, j, 152, 20))
+    
+def draw_wall(obj):
+    """ draw a wall, and check whether we need to hide it """
+    global screen, player
+    if (player.x, player.y) in blocked_squares(obj):
+        img = obj.low_icon
+    else:
+        img = obj.icon
+    source = pygame.image.load(img)
+    source.set_colorkey((255, 255, 255))
+    screen.blit(source, adjusted_posn(obj.x, obj.y, 152, -12))
+
+def draw_door(door):
+    """ draw a door, and auto-open it """
+    if door.show_open_icon:
+        source = door.open_icon
+    else:
+        source = door.icon
+    x = door.rect.left
+    y = door.rect.top
+    if door.dir == 'E':
+        screen.blit(source, adjusted_posn(x, y, 152, -7))
+    elif door.dir == 'S':
+        screen.blit(source, adjusted_posn(x, y, 137, -7))
+
+def draw_container(obj):
+    """ draw a container.  sparkles will be added later """
+    global screen, ticks
+    if obj.draw_contents:
+        for item in obj.contents:
+            if item.slot in ['mainhand', 'offhand', 'chest', 'head']:
+                f = item.current_animation.get_current_filename()
+                if f[len(f)-6:] == '_B.bmp':
+                    draw_equipment(item, obj.x, obj.y, -12, -12)
+    source = obj.closed_icon
+    findex = ticks % 4 + 1
+    source.set_colorkey((255, 255, 255))
+    screen.blit(source, adjusted_posn(obj.x, obj.y, 140, -12))
+    if obj.draw_contents:
+        for item in obj.contents:
+            if item.slot in ['mainhand', 'offhand', 'chest', 'head']:
+                f = item.current_animation.get_current_filename()
+                if f[len(f)-6:] != '_B.bmp':
+                    draw_equipment(item, obj.x, obj.y, -12, -12)
+    if obj.contents:
+        sparkle_surface = pygame.image.load('flash_' + str(findex) + '.bmp')
+        sparkle_surface.set_colorkey((0,0,0))
+        screen.blit(sparkle_surface, adjusted_posn(obj.x, obj.y, 152, 12))
+
+def draw_equipment(obj, x, y, dx, dy):
+    """
+    draw a piece of equipment
+    """
+    source = obj.get_current_frame()
+    source.set_colorkey((255,255,255))
+    screen.blit(source, adjusted_posn(x,y, dx + 152, dy))
+    if obj.slot == 'mainhand':
+        try:
+            source = obj.trail_animation.frames[obj.current_animation.findex-1]
+            source.set_colorkey((255,255,255))
+            screen.blit(source, adjusted_posn(x,y, dx + 152, dy))
+        except:
+            pass
+
+def draw_projectile(obj):
+    """ 
+    draw a grid square - i should really just generalize the draw function
+    """
+    global screen
+    source = pygame.image.load(obj.icon)
+    source.set_colorkey((255,255,255))
+    screen.blit(source, adjusted_posn(obj.x, obj.y, 152, 0))
+
+def draw_text(txt, surface, x, y):
+    """ Render string txt at the specified x and y coordinates. """
+    Font = pygame.font.SysFont('Liberation Sans', 10)
+    src = Font.render(txt, False, (255,255,255))
+    surface.blit(src, (x,y))
+
+def adjacent_directions(dir):
+    if dir == 'N': return ['NW', 'NE']
+    if dir == 'NE': return ['N', 'E']
+    if dir == 'E': return ['NE', 'SE']
+    if dir == 'SE': return ['E', 'S']
+    if dir == 'S': return ['SE', 'SW']
+    if dir == 'SW': return ['S', 'W']
+    if dir == 'W': return ['SW', 'NW']
+    if dir == 'NW': return ['W', 'N']
+
+def coords_to_dir((x,y)):
+    dir = ''
+    if (y == -1):
+        dir = 'N'
+    if (y == 1):
+        dir = 'S'
+    if (x == -1):
+        dir += 'W'
+    if (x == 1):
+        dir += 'E'
+    return dir
+
+def dir_to_coords(direction):
+    if direction[0] == 'N':
+        y = -1
+    elif direction[0] == 'S':
+        y = 1
+    else:
+        y = 0
+    if direction[len(direction)-1] == 'W':
+        x = -1
+    elif direction[len(direction)-1] == 'E':
+        x = 1
+    else:
+        x = 0
+    return (x, y)
+
+def y_sort(obj_1, obj_2):
+    """ Sort through a list of objects to determine rendering order.  Takes into account virtual door opening. """
+    y_1 = get_y(obj_1)
+    y_2 = get_y(obj_2)
+    if y_1 > y_2: return 1
+    if y_1 == y_2: return 0
+    if y_1 < y_2: return -1
+
+def get_y(obj):
+    global doors, npcs, player
+    if obj in doors:
+        y = 4*obj.rect.left + 4*obj.rect.top
+        if obj.dir == 'E':
+            if obj.show_open_icon:
+                y += 8
+            elif not obj.show_open_icon:
+                y += 4
+        elif obj.dir == 'S':
+            if obj.show_open_icon:
+                y += -1
+            elif not obj.show_open_icon:
+                y += 0
+    elif obj in npcs + [player]:
+        y = 4*obj.x + 4*obj.y - 1
+    else:
+        y = 4*obj.x + 4*obj.y
+    return y
+
+def distance(obj_1, obj_2):
+    try:
+        x_1 = obj_1.x
+        y_1 = obj_1.y
+    except:
+        x_1 = obj_1[0]
+        y_1 = obj_1[1]
+    try:
+        x_2 = obj_2.x
+        y_2 = obj_2.y
+    except:
+        x_2 = obj_2[0]
+        y_2 = obj_2[1]
+    dx = x_2 - x_1
+    dy = y_2 - y_1
+    return pow(dx*dx + dy*dy, .5)
+
+def distance_sort(x, y, target):
+    """
+    Sort a list of npcs/objects by distance from the target.
+    """
+    if distance(target, x) > distance(target, y): return 1
+    if distance(target, x) == distance(target, y): return 0
+    if distance(target, x) < distance(target, y): return -1
+
+def acquire_target(shift = None):
+    global player, npcs
+    npcs.sort(lambda a,b: distance_sort(a,b,player))
+    if target == None:
+        if npcs:
+            return npcs[0]
+    else:
+        index = npcs.index(target)
+        if shift:
+            return npcs[(index-1) % len(npcs)]
+        else:
+            return npcs[(index+1) % len(npcs)]
+
+def draw_hp_bar(obj):
+    deficit = min(38, round((obj.max_hp-obj.current_hp)/obj.max_hp*38))
+    left = 38 - deficit
+    green_bar = pygame.Rect((1, 1), (38, 6))
+    surface = pygame.Surface((40, 8))
+    surface.fill((255,255,255))
+    surface.fill((0,255,0), green_bar)
+    red_bar = pygame.Rect((left+1, 1), (deficit, 6))
+    surface.fill((255,0,0), red_bar)
+    return surface
+
+def draw_mp_bar(obj):
+    deficit = min(38, round((obj.max_mp-obj.current_mp)/obj.max_mp*38))
+    left = 38 - deficit
+    blue_bar = pygame.Rect((1, 1), (38, 6))
+    surface = pygame.Surface((40, 8))
+    surface.fill((255,255,255))
+    surface.fill((0,0,255), blue_bar)
+    black_bar = pygame.Rect((left+1, 1), (deficit, 6))
+    surface.fill((0,0,0), black_bar)
+    return surface
+
+def draw_spell_bar(spell):
+    deficit = min(38, round((spell.cooldown-spell.ticks)/spell.cooldown*38))
+    left = 38 - deficit
+    yellow_bar = pygame.Rect((1, 1), (38, 2))
+    surface = pygame.Surface((40, 4))
+    surface.fill((255,255,255))
+    surface.fill((255,255,0), yellow_bar)
+    black_bar = pygame.Rect((left+1, 1), (deficit, 2))
+    surface.fill((192,192,192), black_bar)
+    return surface
+
+def adjacent_squares((x, y)):
+    squares = [(x-1, y-1), (x, y-1), (x+1, y-1), (x-1, y), (x+1, y), (x-1, y+1), (x, y+1), (x+1, y+1)]
+    return squares
+
+def get_next_square(source, target):
+    squares = adjacent_squares((source[0], source[0]))
+    squares.sort(lambda a,b: distance_sort(a,b,target))
+    for square in squares:
+        if not obstacle(square[0], square[1]):
+            return square
+
+def point_at(source, target):
+    squares = adjacent_squares((source.x, source.y))
+    squares.sort(lambda a,b: distance_sort(a,b,target))
+    next_square = squares[0]
+    source.dx = next_square[0] - source.x
+    source.dy = next_square[1] - source.y
+
+def is_dead(obj):
+    return obj.current_hp <= 0
+
+def key_to_dir(key):
+    keyName = pygame.key.name(key)
+    if keyName == '[1]': return 'S'
+    if keyName == '[2]': return 'SE'
+    if keyName == '[3]': return 'E'
+    if keyName == '[4]': return 'SW'
+    if keyName == '[6]': return 'NE'
+    if keyName == '[7]': return 'W'
+    if keyName == '[8]': return 'NW'
+    if keyName == '[9]': return 'N'
+
+def joy_to_dir(joystick):
+    # use of x and y is confusing here
+    x = joystick.get_axis(0)
+    y = joystick.get_axis(1)
+    if x < -0.5:
+        dx = -1
+    elif x > 0.5:
+        dx = 1
+    else:
+        dx = 0
+    if y < -0.5:
+        dy = 1
+    elif y > 0.5:
+        dy = -1
+    else:
+        dy = 0
+    if (dx,dy) == (0, 1): return 'NW'
+    if (dx,dy) == (1, 1): return 'N'
+    if (dx,dy) == (1, 0): return 'NE'
+    if (dx,dy) == (1, -1): return 'E'
+    if (dx,dy) == (0, -1): return 'SE'
+    if (dx,dy) == (-1, -1): return 'S'
+    if (dx,dy) == (-1, 0): return 'SW'
+    if (dx,dy) == (-1, 1): return 'W'
+
+def dir_to_key(dir):
+    if dir == 'N': return K_KP9
+    if dir == 'NE': return K_KP6
+    if dir == 'E': return K_KP3
+    if dir == 'SE': return K_KP2
+    if dir == 'S': return K_KP1
+    if dir == 'SW': return K_KP4
+    if dir == 'W': return K_KP7
+    if dir == 'NW': return K_KP8
+
+def get_angle(a, b):
+    if a == b: return 0
+    elif a == 'N':
+        if b in ['NW', 'NE']: return 45
+        elif b in ['W', 'E']: return 90
+        elif b in ['SW', 'SE']: return 135
+        else: return 180
+    elif a == 'NE':
+        if b in ['N', 'E']: return 45
+        elif b in ['NW', 'SE']: return 90
+        elif b in ['W', 'S']: return 135
+        else: return 180
+    elif a == 'E':
+        if b in ['NE', 'SE']: return 45
+        elif b in ['N', 'S']: return 90
+        elif b in ['NW', 'SW']: return 135
+        else: return 180
+    elif a == 'SE':
+        if b in ['E', 'S']: return 45
+        elif b in ['NE', 'SW']: return 90
+        elif b in ['W', 'N']: return 135
+        else: return 180
+    elif a == 'S':
+        if b in ['SW', 'SE']: return 45
+        elif b in ['W', 'E']: return 90
+        elif b in ['NW', 'NE']: return 135
+        else: return 180
+    elif a == 'SW':
+        if b in ['W', 'S']: return 45
+        elif b in ['NW', 'SE']: return 90
+        elif b in ['N', 'E']: return 135
+        else: return 180
+    elif a == 'W':
+        if b in ['NW', 'SW']: return 45
+        elif b in ['N', 'S']: return 90
+        elif b in ['NE', 'SE']: return 135
+        else: return 180
+    elif a == 'NW':
+        if b in ['W', 'N']: return 45
+        elif b in ['SW', 'NE']: return 90
+        elif b in ['S', 'E']: return 135
+        else: return 180
+
+def wall_box(x1, y1, x2, y2, textures, textures_drop):
+    """ empty in the middle """
+    walls = []
+    for y in range(y1, y2+1):
+        for x in range(x1, x2+1):
+            texture = random.choice(textures)
+            texture_drop = random.choice(textures_drop)
+            walls.append(Wall(x, y, texture, texture_drop))
+    for y in range(y1+1, y2):
+        for x in range(x1+1, x2):
+            for wall in walls:
+                if (wall.x, wall.y) == (x,y):
+                    walls.remove(wall)
+    return walls
