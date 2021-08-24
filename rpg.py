@@ -254,11 +254,16 @@ class RPG:
     """ Copy relevant parameters from the level object.
     Need to figure out which are actually necessary
     How do by-reference/by-value work in Python? """
+    self.filename = level.filename
+    self.camera = level.camera
+    self.floor = level.floor
+    self.units = level.units
     self.trees = level.trees
     self.roofs = level.roofs
     self.walls = level.walls
-    self.parapets = level.parapets
+    # self.parapets = level.parapets
     self.corpses = level.units
+    self.music_filenames = level.music_filenames
     
     self.player_units = [u for u in self.units if u.playable]
     self.check_victory = level.check_victory
@@ -1508,8 +1513,9 @@ class RPG:
         total_x += unit.x
         total_y += unit.y
         num_units += 1
-    avg_x = int(total_x / num_units); avg_y = int(total_y / num_units)
-    (self.camera.x, self.camera.y) = (avg_x, avg_y)
+    if (num_units > 0):
+      avg_x = int(total_x / num_units); avg_y = int(total_y / num_units)
+      (self.camera.x, self.camera.y) = (avg_x, avg_y)
     self.redraw_floor = True
 
   def LOS(self, (x1,y1), (x2,y2)):
@@ -2290,7 +2296,7 @@ class RPG:
     return counters
 
   def pixel_array_to_floor(self, pixel_array, tile_color_dict, tile_surfaces_dict, default_tile_type):
-    #floor = Floor(["tga/black_floor_24x12.tga"], pixel_array.surface.get_rect())
+    floor = Floor(["tga/black_floor_24x12.tga"], pixel_array.surface.get_rect())
     t1 = pygame.time.get_ticks()
     floor = BlankFloor(self, pixel_array.surface.get_rect())
     indexed_rgb = {}
